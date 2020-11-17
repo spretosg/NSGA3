@@ -28,7 +28,7 @@ bound_up = (1.0 * up_targ / sum_MW)
 bound_low = (1.0*low_targ / sum_MW)
 
 #global NSGA3 param
-MU = 60
+MU = 80
 NGEN = 1000
 
 
@@ -153,7 +153,7 @@ logbook3.record(gen=0, evals=len(invalid_ind), **record3)
 # CXPB  is the probability with which two individuals
 #       are crossed
 # MUTPB is the probability for mutating an individual
-CXPB, MUTPB = 0.7, 0.4
+CXPB, MUTPB = 0.9, 0.4
 
 
 # Begin the evolution with NGEN repetitions
@@ -206,13 +206,26 @@ for gen in range(1, NGEN):
     print(logbook3.stream)
     print("--- %s seconds ---" % (time.time() - start_time))
 
+fitness_pareto = toolbox.map(toolbox.evaluate, pareto)
+fitness_pareto = np.array(fitness_pareto)
+np.savetxt("fit_pareto_201117.csv", fitness_pareto, delimiter=";")
+
+plt.plot(fitness_pareto[:,0], fitness_pareto[:,1], "yo")
+plt.plot(fitness_pareto[:,0], fitness_pareto[:,2], "yo")
 
 plt.plot(logbook1.select('gen'), logbook1.select('min_clus'))
 plt.plot(logbook2.select('gen'), logbook2.select('min_WT'))
 plt.plot(logbook3.select('gen'), logbook3.select('max_enerd'))
-plt.show()
-pp = np.array(list(pareto.keys))
 
-for ind in range(0, len(pareto)):
- print(pareto.keys.values[1] )
+gen = np.array(logbook1.select('gen'))
+WT = np.array(logbook2.select('min_WT'))
+clus = np.array(logbook1.select('min_clus'))
+enerd = np.array(logbook3.select('max_enerd'))
+fit_gen = np.column_stack((gen,WT,clus,enerd))
+np.savetxt("fit_gen_201117.csv", fit_gen, delimiter=";")
+
+
+plt.show()
+
+
    # return pop, logbook1, pareto, invalid_ind

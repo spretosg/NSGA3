@@ -175,7 +175,14 @@ def optim(MU,NGEN):
         logbook.record(gen=gen, evals=len(invalid_ind), **record)
         print(logbook.stream)
         print("--- %s seconds ---" % (time.time() - start_time))
-
+        fitness_pareto = toolbox.map(toolbox.evaluate, pareto)
+        fitness_pareto = np.array(fitness_pareto)
     #plt.plot(logbook.select('gen'), logbook.select('min_WT'))
     #plt.show()
-    return pop, logbook, pareto, invalid_ind
+
+        par_items = np.array(pareto.items)
+        robust = np.array(1.0 * sum(par_items[1:len(par_items)]) / len(par_items))
+        robust = robust.ravel()
+        rob_mat = np.column_stack((id, robust))
+        rob_mat = {'WT_ID2': rob_mat[:, 0], 'robustness': rob_mat[:, 1]}
+    return rob_mat,fitness_pareto
