@@ -9,10 +9,10 @@ import matplotlib.pyplot as plt
 import random
 import time
 
-def optim(MU,NGEN):
+def optim(MU, NGEN,path):
 
     # load the shp of the scenario
-    all_pts = "D:/04_PROJECTS/2001_WIND_OPTIM/B1_tmp.shp"
+    all_pts = path
     #transform it to numpy array
     na = arcpy.da.TableToNumPyArray(all_pts, ['WT_ID', 'ENER_DENS', 'prod_MW'])
 
@@ -28,8 +28,8 @@ def optim(MU,NGEN):
     #production of energy
     sum_MW = np.sum(na['prod_MW'])
 
-    low_targ = enertarg*0.96
-    up_targ = enertarg * 1.06
+    low_targ = enertarg
+    up_targ = enertarg * 1.07
 
     #the function to determine the initial random population which might reach the energy target
     def initial_indi():
@@ -103,38 +103,43 @@ def optim(MU,NGEN):
 
     # initialize pareto front
     pareto = tools.ParetoFront(similar=np.array_equal)
-    #hof = tools.HallOfFame(1)
-        # Initialize statistics object
-    #stats = tools.Statistics(lambda ind: ind.fitness.values)
-    #stats.register("test", np.mean)
-    #stats.register("test2", np.mean, axis=1)
-    #stats.register("test3", np.mean, axis=2)
-    #stats.register("std", np.std, axis=1)
-    #stats.register("min", np.min, axis=1)
-    #stats.register("max", np.max, axis=1)
 
-   # first_stats = tools.Statistics(key=lambda ind: ind.fitness.values[0])
-    stats = tools.Statistics(key=lambda ind: ind.fitness.values[1])
-    #third_stats = tools.Statistics(key=lambda ind: ind.fitness.values[2])
-    #stats = tools.MultiStatistics(clus=first_stats)
-    stats.register("min_WT", np.min, axis=0)
-    #stats.register("max", np.max, axis=0)
+    first_stats = tools.Statistics(key=lambda ind: ind.fitness.values[0])
+    second_stats = tools.Statistics(key=lambda ind: ind.fitness.values[1])
+    third_stats = tools.Statistics(key=lambda ind: ind.fitness.values[2])
+
+    first_stats.register("min_clus", np.min, axis=0)
+    second_stats.register("min_WT", np.min, axis=0)
+    third_stats.register("max_enerd", np.max, axis=0)
+
+    logbook1 = tools.Logbook()
+    logbook2 = tools.Logbook()
+    logbook3 = tools.Logbook()
+    logbook1.header = "gen", "evals", "TIME", "min_clus"
+    logbook2.header = "gen", "evals", "min_WT"
+    logbook2.header = "gen", "evals", "max_enerd"
 
 
-    logbook = tools.Logbook()
-    #logbook.header = "gen", "evals", "std", "min", "avg", "max"
-    logbook.header = "gen", "evals", "min_WT"
     pop = toolbox.population(n=MU)
     # Evaluate the individuals with an invalid fitness
     invalid_ind = [ind for ind in pop if not ind.fitness.valid]
    # invalid_ind = pop
+    start_time = time.time()
     fitnesses = list(toolbox.map(toolbox.evaluate, invalid_ind))
     for ind, fit in zip(invalid_ind, fitnesses):
         ind.fitness.values = fit
+    end_time = time.time()
+    delt_time = end_time-start_time
 
     # Compile statistics about the population
-    record = stats.compile(pop)
-    logbook.record(gen=0, evals=len(invalid_ind), **record)
+    record1 = first_stats.compile(pop)
+    logbook1.record(gen=0, evals=len(invalid_ind), TIME=delt_time, **record1)
+
+    record2 = second_stats.compile(pop)
+    logbook2.record(gen=0, evals=len(invalid_ind), **record2)
+
+    record3 = third_stats.compile(pop)
+    logbook3.record(gen=0, evals=len(invalid_ind), **record3)
 
 
 
@@ -164,25 +169,52 @@ def optim(MU,NGEN):
         fitnesses = list(toolbox.map(toolbox.evaluate, invalid_ind))
         for ind, fit in zip(invalid_ind, fitnesses):
             ind.fitness.values = fit
-
+        end_time = time.time()
+        delt_time = end_time - start_time
 #select the next generation with NSGA3 from pop and offspring of size MU
         pop = toolbox.select(pop + offspring, MU)
 
         pareto.update(pop)
 
         # Compile statistics about the new population
-        record = stats.compile(invalid_ind)
-        logbook.record(gen=gen, evals=len(invalid_ind), **record)
-        print(logbook.stream)
-        print("--- %s seconds ---" % (time.time() - start_time))
+        record1 = first_stats.compile(invalid_ind)
+        logbook1.record(gen=gen, evals=len(invalid_ind), TIME=delt_time, **record1)
+
+        record2 = second_stats.compile(invalid_ind)
+        logbook2.record(gen=gen, evals=len(invalid_ind), **record2)
+
+        record3 = third_stats.compile(invalid_ind)
+        logbook3.record(gen=gen, evals=len(invalid_ind), **record3)
+
+
+        print("--- %s seconds ---" % delt_time)
+
+        # pareto fitnes values
         fitness_pareto = toolbox.map(toolbox.evaluate, pareto)
         fitness_pareto = np.array(fitness_pareto)
-    #plt.plot(logbook.select('gen'), logbook.select('min_WT'))
-    #plt.show()
+        fitness_pareto = {'CLUS': fitness_pareto[:, 0], 'N_WT': fitness_pareto[:, 1], 'ENERDENS': fitness_pareto[:, 2]}
 
+        #pareto items and robustness
         par_items = np.array(pareto.items)
-        robust = np.array(1.0 * sum(par_items[1:len(par_items)]) / len(par_items))
-        robust = robust.ravel()
-        rob_mat = np.column_stack((id, robust))
-        rob_mat = {'WT_ID2': rob_mat[:, 0], 'robustness': rob_mat[:, 1]}
-    return rob_mat,fitness_pareto
+        par_rob = np.array(1.0 * sum(par_items[1:len(par_items)]) / len(par_items))
+        par_rob = par_rob.ravel()
+        par_rob_mat = np.column_stack((id, par_rob))
+        par_rob_mat = {'WT_ID2': par_rob_mat[:, 0], 'par_rob': par_rob_mat[:, 1]}
+
+        #last items and robustness
+        last_rob = np.array(invalid_ind)
+        last_rob = np.array(1.0 * sum(last_rob[1:len(last_rob)]) / len(last_rob))
+        last_rob = last_rob.ravel()
+        last_rob_mat = np.column_stack((id, last_rob))
+        last_rob_mat = {'WT_ID2': last_rob_mat[:, 0], 'last_rob': last_rob_mat[:, 1]}
+
+        #logbook
+        gen = np.array(logbook1.select('gen'))
+        TIME = np.array(logbook1.select('TIME'))
+        WT = np.array(logbook2.select('min_WT'))
+        clus = np.array(logbook1.select('min_clus'))
+        enerd = np.array(logbook3.select('max_enerd'))
+        logbook = np.column_stack((gen, TIME, WT, clus, enerd))
+        logbook = {'GENERATION': logbook[:, 0], 'TIME': logbook[:, 1], 'N_WT': logbook[:, 2], 'CLUS': logbook[:, 3], 'ENERDENS': logbook[:, 4]}
+
+    return par_rob_mat, last_rob_mat, fitness_pareto, logbook
