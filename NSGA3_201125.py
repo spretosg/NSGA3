@@ -6,30 +6,28 @@ from deap import base
 from deap import creator
 from deap import tools
 from deap.tools._hypervolume import pyhv as hv
+#import scipy.spatial
+
+from scipy.spatial import cKDTree
 
 import random
 import time
 
-#path = "D:/04_PROJECTS/2001_WIND_OPTIM/WIND_OPTIM_git/intermediate_steps/3_wp/NSGA3_RES/in/B3_FFF+.shp"
 
+def optim(MU, NGEN, path,CXPB, MUTPB):
+    fc = path
+    na = arcpy.da.FeatureClassToNumPyArray(fc, ["WT_ID", "ENER_DENS", "prod_MW", "SHAPE@XY"], explode_to_points=True)
 
-def optim(MU, NGEN, path):
-    arcpy.env.overwriteOutput = True
-    # load pts in memory
-    all_pts = r"in_memory/inMemoryFeatureClass"
-    in_pts = path
-    arcpy.CopyFeatures_management(in_pts, all_pts)
-
-    # transform it to numpy array
-    na = arcpy.da.TableToNumPyArray(all_pts, ['WT_ID', 'ENER_DENS', 'prod_MW'])
+    ##here we calculate the expected nearest neighbor distance (in meters) of the scenario
+    nBITS = len(na)
 
     # CXPB  is the probability with which two individuals are crossed
     # MUTPB is the probability for mutating an individual
-    CXPB, MUTPB = 0.7, 0.4
+    #CXPB, MUTPB = 0.8, 0.6
     # MU,NGEN =20, 10
     enertarg = 4300000
     # some parameters to define the random individual
-    nBITS = len(na)
+
     # total production of energy
     sum_MW = np.sum(na['prod_MW'])
 
@@ -49,6 +47,7 @@ def optim(MU, NGEN, path):
     enerd = list(na['ENER_DENS'])
     prod = list(na['prod_MW'])
     id = np.array(na['WT_ID'])
+    _xy = list(na['SHAPE@XY'])
 
     # the evaluation function, taking the individual vector as input
 
@@ -61,14 +60,17 @@ def optim(MU, NGEN, path):
             mean_enerdsel = sum(x * y for x, y in zip(enerd, individual)) / sum(individual)
             # goal 2
             count_WTsel = sum(individual)
-            # goal 3 (subset the input points by the WT_IDs which are in the ini pop (=1)
-            WT_pop = np.column_stack((id, individual))
-            WT_sel = WT_pop[WT_pop[:, [1]] == 1]
-            WT_sel = WT_sel.astype(int)
-            qry = '"WT_ID" IN ' + str(tuple(WT_sel))
-            subset = arcpy.MakeFeatureLayer_management(all_pts, "tmp", qry)
-            nn_output = arcpy.AverageNearestNeighbor_stats(subset, "EUCLIDEAN_DISTANCE", "NO_REPORT", "41290790000")
-            clus = float(nn_output.getOutput(0))
+            # goal 3 zip the individual vector to the _xy coordinates
+            subset = np.column_stack((_xy,individual))
+            #subset the data that only the 1 remains
+            subset = subset[subset[:, 2] == 1]
+            subset = np.delete(subset, 2, 1)
+            tree = cKDTree(subset)
+            dists = tree.query(subset, 2)
+            nn_dist = dists[0][:, 1]
+            rE = 1 / (2 * math.sqrt(1.0 * len(subset) / 41290790000))
+            rA= np.mean(nn_dist)
+            clus = rA/rE
             res = (clus, count_WTsel, mean_enerdsel)
             ## delete the feature tmp since otherwise it will not work in a loop
             arcpy.Delete_management("tmp")

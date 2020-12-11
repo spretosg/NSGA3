@@ -4,7 +4,7 @@ import numpy as np
 from deap import base
 from deap import creator
 from deap import tools
-import matplotlib.pyplot as plt
+from deap.tools._hypervolume import pyhv as hv
 
 import random
 import time
@@ -12,7 +12,12 @@ import time
 def optim(MU, NGEN,path):
 
     # load the shp of the scenario
+    #in_pts = "D:/04_PROJECTS/2001_WIND_OPTIM/WIND_OPTIM_git/intermediate_steps/3_wp/NSGA3_RES/in/B3.shp"
+    #load in memory
+    #all_pts = r"in_memory/inMemoryFeatureClass"
     all_pts = path
+    #arcpy.CopyFeatures_management(in_pts, all_pts)
+
     #transform it to numpy array
     na = arcpy.da.TableToNumPyArray(all_pts, ['WT_ID', 'ENER_DENS', 'prod_MW'])
 
@@ -96,7 +101,7 @@ def optim(MU, NGEN,path):
 
     #mate, mutate and select to perform crossover
     toolbox.register("mate", tools.cxTwoPoint)
-    toolbox.register("mutate", tools.mutPolynomialBounded,  low=0, up=1, eta=20, indpb=0.05)
+    toolbox.register("mutate", tools.mutFlipBit, indpb=0.05)
     toolbox.register("select", tools.selNSGA3, ref_points=ref_points)
 
 
@@ -130,6 +135,9 @@ def optim(MU, NGEN,path):
         ind.fitness.values = fit
     end_time = time.time()
     delt_time = end_time-start_time
+
+## Hyper volume
+   # hv.hypervolume()
 
     # Compile statistics about the population
     record1 = first_stats.compile(pop)
@@ -185,36 +193,37 @@ def optim(MU, NGEN,path):
 
         record3 = third_stats.compile(invalid_ind)
         logbook3.record(gen=gen, evals=len(invalid_ind), **record3)
-
-
         print("--- %s seconds ---" % delt_time)
 
-        # pareto fitnes values
-        fitness_pareto = toolbox.map(toolbox.evaluate, pareto)
-        fitness_pareto = np.array(fitness_pareto)
-        fitness_pareto = {'CLUS': fitness_pareto[:, 0], 'N_WT': fitness_pareto[:, 1], 'ENERDENS': fitness_pareto[:, 2]}
+    # pareto fitnes values
+    fitness_pareto = toolbox.map(toolbox.evaluate, pareto)
+    fitness_pareto = np.array(fitness_pareto)
+    fitness_pareto = {'CLUS': fitness_pareto[:, 0], 'N_WT': fitness_pareto[:, 1], 'ENERDENS': fitness_pareto[:, 2]}
 
-        #pareto items and robustness
-        par_items = np.array(pareto.items)
-        par_rob = np.array(1.0 * sum(par_items[1:len(par_items)]) / len(par_items))
-        par_rob = par_rob.ravel()
-        par_rob_mat = np.column_stack((id, par_rob))
-        par_rob_mat = {'WT_ID2': par_rob_mat[:, 0], 'par_rob': par_rob_mat[:, 1]}
+    #pareto items and robustness
+    par_items = np.array(pareto.items)
+    par_rob = np.array(1.0 * sum(par_items[1:len(par_items)]) / len(par_items))
+    par_rob = par_rob.ravel()
+    par_rob_mat = np.column_stack((id, par_rob))
+    par_rob_mat = {'WT_ID2': par_rob_mat[:, 0], 'par_rob': par_rob_mat[:, 1]}
 
-        #last items and robustness
-        last_rob = np.array(invalid_ind)
-        last_rob = np.array(1.0 * sum(last_rob[1:len(last_rob)]) / len(last_rob))
-        last_rob = last_rob.ravel()
-        last_rob_mat = np.column_stack((id, last_rob))
-        last_rob_mat = {'WT_ID2': last_rob_mat[:, 0], 'last_rob': last_rob_mat[:, 1]}
+    #last items and robustness
+    last_rob = np.array(invalid_ind)
+    last_rob = np.array(1.0 * sum(last_rob[1:len(last_rob)]) / len(last_rob))
+    last_rob = last_rob.ravel()
+    last_rob_mat = np.column_stack((id, last_rob))
+    last_rob_mat = {'WT_ID2': last_rob_mat[:, 0], 'last_rob': last_rob_mat[:, 1]}
 
-        #logbook
-        gen = np.array(logbook1.select('gen'))
-        TIME = np.array(logbook1.select('TIME'))
-        WT = np.array(logbook2.select('min_WT'))
-        clus = np.array(logbook1.select('min_clus'))
-        enerd = np.array(logbook3.select('max_enerd'))
-        logbook = np.column_stack((gen, TIME, WT, clus, enerd))
-        logbook = {'GENERATION': logbook[:, 0], 'TIME': logbook[:, 1], 'N_WT': logbook[:, 2], 'CLUS': logbook[:, 3], 'ENERDENS': logbook[:, 4]}
-
+    #logbook
+    gen = np.array(logbook1.select('gen'))
+    TIME = np.array(logbook1.select('TIME'))
+    WT = np.array(logbook2.select('min_WT'))
+    clus = np.array(logbook1.select('min_clus'))
+    enerd = np.array(logbook3.select('max_enerd'))
+    logbook = np.column_stack((gen, TIME, WT, clus, enerd))
+    logbook = {'GENERATION': logbook[:, 0], 'TIME': logbook[:, 1], 'N_WT': logbook[:, 2], 'CLUS': logbook[:, 3], 'ENERDENS': logbook[:, 4]}
+    arcpy.Delete_management("all_pts")
+    arcpy.Delete_management("in_pts")
+    arcpy.Delete_management("na")
+    arcpy.Delete_management("in_memory/inMemoryFeatureClass")
     return par_rob_mat, last_rob_mat, fitness_pareto, logbook

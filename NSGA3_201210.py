@@ -6,30 +6,32 @@ from deap import base
 from deap import creator
 from deap import tools
 from deap.tools._hypervolume import pyhv as hv
+#import scipy.spatial
+
+from scipy.spatial import cKDTree
 
 import random
 import time
 
-#path = "D:/04_PROJECTS/2001_WIND_OPTIM/WIND_OPTIM_git/intermediate_steps/3_wp/NSGA3_RES/in/B3_FFF+.shp"
+
+def optim(MU, NGEN, path, CXPB, MUTPB, A, B):
+   # path = "D:/04_PROJECTS/2001_WIND_OPTIM/WIND_OPTIM_git/intermediate_steps/3_wp/NSGA3_RES/in/B3_FFF+.shp"
+    fc = path
+    na = arcpy.da.FeatureClassToNumPyArray(fc, ["WT_ID", "ENER_DENS", "prod_MW", "SHAPE@XY"], explode_to_points=True)
 
 
-def optim(MU, NGEN, path):
-    arcpy.env.overwriteOutput = True
-    # load pts in memory
-    all_pts = r"in_memory/inMemoryFeatureClass"
-    in_pts = path
-    arcpy.CopyFeatures_management(in_pts, all_pts)
 
-    # transform it to numpy array
-    na = arcpy.da.TableToNumPyArray(all_pts, ['WT_ID', 'ENER_DENS', 'prod_MW'])
+
+    ##here we calculate the expected nearest neighbor distance (in meters) of the scenario
+    nBITS = len(na)
 
     # CXPB  is the probability with which two individuals are crossed
     # MUTPB is the probability for mutating an individual
-    CXPB, MUTPB = 0.7, 0.4
+    #CXPB, MUTPB = 0.8, 0.6
     # MU,NGEN =20, 10
     enertarg = 4300000
     # some parameters to define the random individual
-    nBITS = len(na)
+
     # total production of energy
     sum_MW = np.sum(na['prod_MW'])
 
@@ -45,10 +47,20 @@ def optim(MU, NGEN, path):
         x3 = random.uniform(bound_low, bound_up)
         return np.random.choice([1, 0], size=(nBITS,), p=[x3, 1 - x3])
 
+    def initial_ind2():
+        N = np.array(A)
+        return N
+
+
+    def initial_ind3():
+        M = np.array(B)
+        return M
+
     # some lists for the evaluation function
     enerd = list(na['ENER_DENS'])
     prod = list(na['prod_MW'])
     id = np.array(na['WT_ID'])
+    _xy = list(na['SHAPE@XY'])
 
     # the evaluation function, taking the individual vector as input
 
@@ -61,14 +73,17 @@ def optim(MU, NGEN, path):
             mean_enerdsel = sum(x * y for x, y in zip(enerd, individual)) / sum(individual)
             # goal 2
             count_WTsel = sum(individual)
-            # goal 3 (subset the input points by the WT_IDs which are in the ini pop (=1)
-            WT_pop = np.column_stack((id, individual))
-            WT_sel = WT_pop[WT_pop[:, [1]] == 1]
-            WT_sel = WT_sel.astype(int)
-            qry = '"WT_ID" IN ' + str(tuple(WT_sel))
-            subset = arcpy.MakeFeatureLayer_management(all_pts, "tmp", qry)
-            nn_output = arcpy.AverageNearestNeighbor_stats(subset, "EUCLIDEAN_DISTANCE", "NO_REPORT", "41290790000")
-            clus = float(nn_output.getOutput(0))
+            # goal 3 zip the individual vector to the _xy coordinates
+            subset = np.column_stack((_xy,individual))
+            #subset the data that only the 1 remains
+            subset = subset[subset[:, 2] == 1]
+            subset = np.delete(subset, 2, 1)
+            tree = cKDTree(subset)
+            dists = tree.query(subset, 2)
+            nn_dist = dists[0][:, 1]
+            rE = 1 / (2 * math.sqrt(1.0 * len(subset) / 41290790000))
+            rA= np.mean(nn_dist)
+            clus = rA/rE
             res = (clus, count_WTsel, mean_enerdsel)
             ## delete the feature tmp since otherwise it will not work in a loop
             arcpy.Delete_management("tmp")
@@ -94,6 +109,20 @@ def optim(MU, NGEN, path):
     toolbox.register("initial_indi", initial_indi)
     toolbox.register("individual", tools.initRepeat, creator.Individual, toolbox.initial_indi, n=1)
     toolbox.register("population", tools.initRepeat, list, toolbox.individual)
+
+    ###and the specific individual A
+    toolbox.register("initial_indi2", initial_ind2)
+    toolbox.register("individual2", tools.initRepeat, creator.Individual, toolbox.initial_indi2, n=1)
+    toolbox.register("population2", tools.initRepeat, list, toolbox.individual2)
+    pop2 = toolbox.population2(n=1)
+
+
+    ###and the specific individual B
+    toolbox.register("initial_indi3", initial_ind3)
+    toolbox.register("individual3", tools.initRepeat, creator.Individual, toolbox.initial_indi3, n=1)
+    toolbox.register("population3", tools.initRepeat, list, toolbox.individual2)
+    pop3 = toolbox.population3(n=1)
+
     # evaluation and constraints
     toolbox.register("evaluate", evaluate)
     ##assign the feasibility of solutions and if not feasible a large number for the minimization tasks and a small number for the maximization task
@@ -107,6 +136,11 @@ def optim(MU, NGEN, path):
     pareto = tools.ParetoFront(similar=np.array_equal)
     ### initialize population
     pop = toolbox.population(n=MU)
+    #pick a random number where to insert the vector containing the best producing WT into the population
+    pop[random.randrange(0,MU,1)] = pop2[0]
+   #and insert the best energydens accordingly
+    pop[random.randrange(0, MU, 1)] = pop3[0]
+
 
     first_stats = tools.Statistics(key=lambda ind: ind.fitness.values[0])
     second_stats = tools.Statistics(key=lambda ind: ind.fitness.values[1])
